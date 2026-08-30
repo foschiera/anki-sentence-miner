@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Anki Miner</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Web Anki Miner</p>
+      <h1>Configuração</h1>
+    </div>
+    <span id="connection-status" class="status status--checking" role="status">Verificando…</span>
+  </header>
+
+  <div id="connection-help" class="connection-help" hidden>
+    Abra o Anki Desktop e confirme que o complemento AnkiConnect está ativo na porta 8765.
+    Depois, <button id="retry-connection" class="link-button" type="button">tente novamente</button>.
+  </div>
+
+  <main>
+    <fieldset id="anki-settings" disabled>
+      <legend>Destino</legend>
+      <label for="deck-name">Baralho</label>
+      <select id="deck-name"></select>
+
+      <label for="model-name">Tipo de nota</label>
+      <select id="model-name"></select>
+    </fieldset>
+
+    <fieldset id="field-settings" disabled>
+      <legend>Mapeamento de campos</legend>
+      <p class="hint">Escolha onde cada dado minerado será salvo. “Não incluir” desativa o dado.</p>
+      <div id="field-mappings" class="field-mappings"></div>
+    </fieldset>
+
+    <fieldset id="sync-settings" disabled>
+      <legend>Sincronização</legend>
+      <label class="toggle-row" for="auto-sync">
+        <span>
+          <strong>Sincronizar automaticamente</strong>
+          <small>Após um lote de novos cartões</small>
+        </span>
+        <input id="auto-sync" type="checkbox">
+      </label>
+
+      <label for="sync-batch-size">Tamanho do lote</label>
+      <input id="sync-batch-size" type="number" min="1" max="1000" step="1">
+
+      <button id="sync-now" class="primary-button" type="button">Sincronizar com AnkiWeb</button>
+      <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
+    </fieldset>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

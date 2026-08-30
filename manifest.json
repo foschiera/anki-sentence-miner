@@ -6,8 +6,13 @@
   "permissions": [
     "activeTab",
     "scripting",
+    "storage",
     "tabs"
   ],
+  "action": {
+    "default_title": "Web Anki Miner",
+    "default_popup": "popup.html"
+  },
   "commands": {
     "start-area-selection": {
       "suggested_key": {
@@ -33,7 +38,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "css": ["content.css"]
     }
   ],
   "browser_specific_settings": {

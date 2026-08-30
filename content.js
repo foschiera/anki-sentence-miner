@@ -17,11 +17,99 @@ browser.runtime.onMessage.addListener(request => {
   }
 });
 
+// A página também verifica a disponibilidade do Anki ao carregar. O badge da
+// toolbar é atualizado pelo background e a página só é avisada em caso de falha.
+function checkAnkiOnPageLoad() {
+  browser.runtime.sendMessage({ action: "anki_healthcheck" })
+    .then(status => {
+      if (status && status.connected === false) {
+        showToast({
+          type: "error",
+          title: "Anki desconectado",
+          message: "Abra o Anki Desktop e verifique se o AnkiConnect está ativo."
+        });
+      }
+    })
+    .catch(() => {});
+}
+
+if (document.readyState === "complete") checkAnkiOnPageLoad();
+else if (typeof window.addEventListener === "function") window.addEventListener("load", checkAnkiOnPageLoad, { once: true });
+
+function showToast({ type = "success", title, message, term = "", jlpt = "", actionLabel = "", onAction = null }) {
+  let region = document.getElementById("anki-miner-toast-region");
+  if (!region) {
+    region = document.createElement("div");
+    region.id = "anki-miner-toast-region";
+    region.setAttribute("aria-live", "polite");
+    region.setAttribute("aria-atomic", "false");
+    document.documentElement.appendChild(region);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `anki-miner-toast anki-miner-toast--${type}`;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "anki-miner-toast__title";
+  const titleText = document.createElement("span");
+  titleText.textContent = title || (type === "success" ? "Adicionado ao Anki" : "Web Anki Miner");
+  titleRow.appendChild(titleText);
+
+  if (jlpt) {
+    const badge = document.createElement("span");
+    badge.className = "anki-miner-toast__badge";
+    badge.textContent = jlpt;
+    titleRow.appendChild(badge);
+  }
+
+  const body = document.createElement("div");
+  body.className = "anki-miner-toast__message";
+  body.textContent = message || term;
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "anki-miner-toast__close";
+  closeButton.type = "button";
+  closeButton.setAttribute("aria-label", "Fechar notificação");
+  closeButton.textContent = "×";
+
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    toast.className += " anki-miner-toast--leaving";
+    if (typeof setTimeout === "function") setTimeout(() => toast.remove(), 180);
+    else toast.remove();
+  };
+
+  closeButton.addEventListener("click", dismiss);
+  toast.appendChild(titleRow);
+  toast.appendChild(body);
+  toast.appendChild(closeButton);
+
+  if (actionLabel && typeof onAction === "function") {
+    const actionButton = document.createElement("button");
+    actionButton.className = "anki-miner-toast__action";
+    actionButton.type = "button";
+    actionButton.textContent = actionLabel;
+    actionButton.addEventListener("click", () => {
+      dismiss();
+      onAction();
+    });
+    toast.appendChild(actionButton);
+  }
+
+  region.appendChild(toast);
+  if (typeof setTimeout === "function") setTimeout(dismiss, 2500);
+  return toast;
+}
+
 // Manipula mineração padrão (Texto ou Legenda)
-function handleTextMining() {
+async function handleTextMining() {
   const selection = window.getSelection();
   let selectedText = selection.toString().trim();
   let sentence = "";
+  let minedSubtitle = false;
 
   if (selectedText) {
     sentence = extractSurroundingSentence(selection, selectedText);
@@ -30,29 +118,76 @@ function handleTextMining() {
     if (subtitleText) {
       selectedText = subtitleText;
       sentence = subtitleText;
+      minedSubtitle = true;
     }
   }
 
   if (!selectedText) {
-    alert("Nenhum texto ou legenda detectada!");
+    showToast({ type: "warning", title: "Nada para minerar", message: "Selecione um texto ou ative uma legenda no vídeo." });
     return;
   }
 
-  browser.runtime.sendMessage({
-    action: "add_to_anki",
-    payload: {
-      word: selectedText,
-      sentence: sentence
+  const payload = { word: selectedText, sentence };
+  if (minedSubtitle) {
+    try {
+      const stored = await browser.storage.local.get("ankiMinerSettings");
+      if (stored.ankiMinerSettings?.fieldMappings?.image) {
+        payload.imageBase64 = captureCurrentVideoFrame();
+      }
+    } catch (error) {
+      console.warn("[Video Snapshot] O frame não pôde ser capturado:", error);
     }
-  }).then(response => {
-    if (response && response.success) {
-      alert(`Adicionado ao Anki: ${selectedText}`);
-    } else {
-      alert(`Erro: ${response ? response.error : 'Sem resposta do Anki-Connect'}`);
+  }
+
+  await sendMiningRequest(payload);
+}
+
+async function sendMiningRequest(payload) {
+  try {
+    const response = await browser.runtime.sendMessage({ action: "add_to_anki", payload });
+    if (response?.success) {
+      const syncMessage = response.syncError
+        ? `Cartão salvo; a sincronização falhou: ${response.syncError}`
+        : response.synced ? "Cartão salvo e sincronizado com o AnkiWeb." : "Cartão criado com sucesso.";
+      showToast({ type: response.syncError ? "warning" : "success", title: "Adicionado ao Anki", message: `${response.text || payload.word} — ${syncMessage}`, term: response.text, jlpt: response.jlptLevel });
+      return;
     }
-  }).catch(error => {
-    alert(`Erro de comunicação: ${error.message}`);
-  });
+
+    if (response?.duplicate && response.requiresConfirmation) {
+      showToast({
+        type: "warning",
+        title: "Nota duplicada",
+        message: `${response.text || payload.word} já existe no baralho.`,
+        term: response.text || payload.word,
+        jlpt: response.jlptLevel,
+        actionLabel: "Adicionar mesmo assim",
+        onAction: () => sendMiningRequest({ ...payload, forceDuplicate: true })
+      });
+      return;
+    }
+
+    showToast({ type: "error", title: "Falha ao adicionar", message: response?.error || "Sem resposta do Anki-Connect", term: payload.word });
+  } catch (error) {
+    showToast({ type: "error", title: "Erro de comunicação", message: error.message || String(error), term: payload.word });
+  }
+}
+
+function captureCurrentVideoFrame() {
+  const videos = Array.from(document.querySelectorAll("video"))
+    .filter(video => video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0)
+    .sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight));
+  const video = videos[0];
+  if (!video) return "";
+
+  const maxWidth = 1280;
+  const scale = Math.min(1, maxWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.84).split(",")[1] || "";
 }
 
 // Captura legendas ativas na Netflix, YouTube e players web comuns
@@ -219,12 +354,22 @@ function startScreenSnip() {
       browser.runtime.sendMessage({ action: "crop_and_ocr", rect })
         .then(res => {
           if (res && res.success) {
-            alert(`OCR Concluído!\nTexto: ${res.text}`);
+            showToast({ type: "success", title: "OCR concluído", message: res.text, term: res.term, jlpt: res.jlptLevel });
+          } else if (res?.duplicate && res.requiresConfirmation) {
+            showToast({
+              type: "warning",
+              title: "Nota duplicada",
+              message: `${res.term || res.text} já existe no baralho.`,
+              term: res.term,
+              jlpt: res.jlptLevel,
+              actionLabel: "Adicionar mesmo assim",
+              onAction: () => sendMiningRequest({ word: res.term || res.text, sentence: res.text, forceDuplicate: true })
+            });
           } else {
-            alert(`Erro no OCR: ${res && res.error ? res.error : 'Falha na comunicação'}`);
+            showToast({ type: "error", title: "Erro no OCR", message: res?.error || "Falha na comunicação" });
           }
         }).catch(err => {
-          alert(`Erro: ${err ? err.message : 'Falha desconhecida'}`);
+          showToast({ type: "error", title: "Erro no OCR", message: err?.message || "Falha desconhecida" });
         });
     }
   });
