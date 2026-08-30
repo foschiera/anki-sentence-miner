@@ -1,0 +1,43 @@
+#anki-miner-toast-region {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  display: flex;
+  width: min(360px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.anki-miner-toast {
+  position: relative;
+  overflow: hidden;
+  padding: 13px 40px 13px 14px;
+  border: 1px solid #334155;
+  border-left: 4px solid #60a5fa;
+  border-radius: 11px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .36);
+  color: #f8fafc;
+  background: rgba(15, 23, 42, .97);
+  font: 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: auto;
+  animation: anki-miner-toast-in .22s ease-out both;
+}
+
+.anki-miner-toast--success { border-left-color: #22c55e; }
+.anki-miner-toast--error { border-left-color: #ef4444; }
+.anki-miner-toast--warning { border-left-color: #f59e0b; }
+.anki-miner-toast--leaving { animation: anki-miner-toast-out .18s ease-in both; }
+.anki-miner-toast__title { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; font-weight: 800; }
+.anki-miner-toast__message { color: #cbd5e1; overflow-wrap: anywhere; }
+.anki-miner-toast__badge { padding: 2px 6px; border-radius: 999px; color: #fef3c7; background: #78350f; font-size: 10px; }
+.anki-miner-toast__close { position: absolute; top: 7px; right: 8px; width: 27px; height: 27px; padding: 0; border: 0; color: #94a3b8; background: transparent; font: 20px/1 sans-serif; cursor: pointer; }
+.anki-miner-toast__action { margin-top: 9px; padding: 6px 9px; border: 1px solid #64748b; border-radius: 7px; color: #f8fafc; background: #334155; font: 700 12px/1.2 system-ui, sans-serif; cursor: pointer; }
+
+@keyframes anki-miner-toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes anki-miner-toast-out { to { opacity: 0; transform: translateX(14px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .anki-miner-toast, .anki-miner-toast--leaving { animation-duration: 0s; }
+}

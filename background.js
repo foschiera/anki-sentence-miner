@@ -1,5 +1,94 @@
 import './tesseract.min.js';
 
+const ANKI_CONNECT_URL = "http://localhost:8765";
+const SETTINGS_KEY = "ankiMinerSettings";
+const STATE_KEY = "ankiMinerState";
+const DEFAULT_SETTINGS = Object.freeze({
+  deckName: "日本語",
+  modelName: "Japones",
+  fieldMappings: {
+    word: "Palavra",
+    reading: "Leitura",
+    jlpt: "JLPT",
+    meaning: "Significado",
+    sentence: "Frase",
+    audio: "Audio",
+    image: ""
+  },
+  autoSync: false,
+  syncBatchSize: 10
+});
+
+browser.runtime.onInstalled?.addListener(async () => {
+  const stored = await browser.storage.local.get(SETTINGS_KEY);
+  if (!stored[SETTINGS_KEY]) {
+    await browser.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+  }
+});
+
+async function getSettings() {
+  const stored = await browser.storage.local.get(SETTINGS_KEY);
+  const settings = stored[SETTINGS_KEY] || {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    fieldMappings: {
+      ...DEFAULT_SETTINGS.fieldMappings,
+      ...(settings.fieldMappings || {})
+    }
+  };
+}
+
+async function invokeAnki(action, params = undefined) {
+  const controller = new AbortController();
+  const timeoutMs = action === "sync" ? 120000 : 10000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(ANKI_CONNECT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, version: 6, ...(params === undefined ? {} : { params }) }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Anki-Connect respondeu com HTTP ${response.status}.`);
+    }
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    return data.result;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("O Anki-Connect não respondeu a tempo.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function setConnectionBadge(connected) {
+  if (!browser.action) return;
+  await browser.action.setBadgeText({ text: connected ? "●" : "!" });
+  await browser.action.setBadgeBackgroundColor({ color: connected ? "#15803d" : "#b91c1c" });
+  await browser.action.setTitle({
+    title: connected ? "Web Anki Miner — Anki conectado" : "Web Anki Miner — Anki desconectado"
+  });
+}
+
+async function healthcheck() {
+  try {
+    const version = await invokeAnki("version");
+    await setConnectionBadge(true);
+    return { connected: true, version };
+  } catch (error) {
+    await setConnectionBadge(false);
+    return { connected: false, error: error.message || String(error) };
+  }
+}
+
 // Mantém um único worker para evitar recarregar o modelo japonês a cada recorte.
 let tesseractWorker = null;
 
@@ -49,7 +138,9 @@ async function getOcrWorker() {
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "add_to_anki") {
     return processAndSendNote(request.payload)
-      .then(result => ({ success: true, text: result.extractedText, data: result.data }))
+      .then(result => result.duplicate
+        ? { success: false, ...result }
+        : { success: true, ...result })
       .catch(error => {
         console.error("[Add Note Error]", error);
         return { success: false, error: error.message || String(error) };
@@ -64,14 +155,29 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
           .then(result => ({ result, extractedText }));
       })
       .then(({ result, extractedText }) => ({
-        success: true,
-        text: extractedText,
-        data: result.data
+        success: !result.duplicate,
+        ...result,
+        term: result.text,
+        text: extractedText
       }))
       .catch(error => {
         console.error("[Crop & OCR Error]", error);
         return { success: false, error: error.message || String(error) };
       });
+  }
+
+  if (request.action === "anki_healthcheck") return healthcheck();
+  if (request.action === "get_settings") return getSettings();
+  if (request.action === "anki_deck_names") return invokeAnki("deckNames");
+  if (request.action === "anki_model_names") return invokeAnki("modelNames");
+  if (request.action === "anki_model_fields") {
+    return invokeAnki("modelFieldNames", { modelName: request.modelName });
+  }
+  if (request.action === "anki_sync") {
+    return invokeAnki("sync").then(async result => {
+      await browser.storage.local.set({ [STATE_KEY]: { addedSinceSync: 0 } });
+      return { success: true, result };
+    });
   }
 });
 
@@ -288,11 +394,64 @@ function escapeHtml(text) {
 }
 
 // Criação e envio da nota para o Anki
-async function processAndSendNote({ word, sentence }) {
+function escapeAnkiQueryValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function assignMappedField(fields, fieldName, value) {
+  if (fieldName) fields[fieldName] = value ?? "";
+}
+
+async function registerSuccessfulAddition(settings) {
+  if (!settings.autoSync) return {};
+
+  const stored = await browser.storage.local.get(STATE_KEY);
+  const current = Number(stored[STATE_KEY]?.addedSinceSync) || 0;
+  const addedSinceSync = current + 1;
+  const batchSize = Math.max(1, Number(settings.syncBatchSize) || DEFAULT_SETTINGS.syncBatchSize);
+
+  if (addedSinceSync < batchSize) {
+    await browser.storage.local.set({ [STATE_KEY]: { addedSinceSync } });
+    return { addedSinceSync };
+  }
+
+  try {
+    await invokeAnki("sync");
+    await browser.storage.local.set({ [STATE_KEY]: { addedSinceSync: 0 } });
+    return { addedSinceSync: 0, synced: true };
+  } catch (error) {
+    await browser.storage.local.set({ [STATE_KEY]: { addedSinceSync } });
+    return { addedSinceSync, syncError: error.message || String(error) };
+  }
+}
+
+async function processAndSendNote({ word, sentence = "", imageBase64 = "", forceDuplicate = false }) {
+  if (!word || !String(word).trim()) throw new Error("Nenhum termo foi informado para mineração.");
+
+  const settings = await getSettings();
+  if (!settings.deckName || !settings.modelName || !settings.fieldMappings.word) {
+    throw new Error("Configure o baralho, o tipo de nota e o campo Palavra no popup da extensão.");
+  }
+
   const dictData = await fetchDictionaryEntry(word);
   const cleanSentence = sentence.replace(/<[^>]*>/g, "").trim();
   const translatedSentence = await translateSentence(cleanSentence || dictData.baseWord);
   const sentenceWithTranslation = `${sentence}<br><span class="sentence-translation">${escapeHtml(translatedSentence)}</span>`;
+
+  if (!forceDuplicate) {
+    const fieldSearch = `${settings.fieldMappings.word}:${dictData.baseWord}`;
+    const query = `deck:"${escapeAnkiQueryValue(settings.deckName)}" "${escapeAnkiQueryValue(fieldSearch)}"`;
+    const existingNoteIds = await invokeAnki("findNotes", { query });
+    if (Array.isArray(existingNoteIds) && existingNoteIds.length > 0) {
+      return {
+        duplicate: true,
+        requiresConfirmation: true,
+        text: dictData.baseWord,
+        jlptLevel: dictData.jlptLevel,
+        existingNoteIds
+      };
+    }
+  }
 
   const ttsAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encodeURIComponent(cleanSentence || dictData.baseWord)}`;
 
@@ -301,42 +460,45 @@ async function processAndSendNote({ word, sentence }) {
     tags.push(`jlpt-${dictData.jlptLevel.toLowerCase()}`);
   }
 
-  const payload = {
-    action: "addNote",
-    version: 6,
-    params: {
-      note: {
-        deckName: "日本語",
-        modelName: "Japones",
-        fields: {
-          Palavra: dictData.baseWord,
-          PalavraMinerada: word,
-          Leitura: dictData.reading,
-          JLPT: dictData.jlptLevel,
-          Significado: dictData.definitions,
-          Frase: sentenceWithTranslation,
-          Audio: ""
-        },
-        audio: [{
-          url: ttsAudioUrl,
-          filename: `tts_${Date.now()}.mp3`,
-          fields: ["Audio"]
-        }],
-        tags: tags
-      }
-    }
+  const fields = {};
+  assignMappedField(fields, settings.fieldMappings.word, dictData.baseWord);
+  assignMappedField(fields, settings.fieldMappings.reading, dictData.reading);
+  assignMappedField(fields, settings.fieldMappings.jlpt, dictData.jlptLevel);
+  assignMappedField(fields, settings.fieldMappings.meaning, dictData.definitions);
+  assignMappedField(fields, settings.fieldMappings.sentence, sentenceWithTranslation);
+  assignMappedField(fields, settings.fieldMappings.audio, "");
+  assignMappedField(fields, settings.fieldMappings.image, "");
+
+  const note = {
+    deckName: settings.deckName,
+    modelName: settings.modelName,
+    fields,
+    tags
   };
 
-  const response = await fetch("http://localhost:8765", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(data.error);
+  if (settings.fieldMappings.audio) {
+    note.audio = [{
+      url: ttsAudioUrl,
+      filename: `tts_${Date.now()}.mp3`,
+      fields: [settings.fieldMappings.audio]
+    }];
   }
 
-  return { data: data.result, extractedText: word };
+  if (imageBase64 && settings.fieldMappings.image) {
+    note.picture = [{
+      data: imageBase64,
+      filename: `frame_${Date.now()}.jpg`,
+      fields: [settings.fieldMappings.image]
+    }];
+  }
+
+  const noteId = await invokeAnki("addNote", { note });
+  const syncState = await registerSuccessfulAddition(settings);
+  return {
+    data: noteId,
+    text: dictData.baseWord,
+    extractedText: word,
+    jlptLevel: dictData.jlptLevel,
+    ...syncState
+  };
 }
