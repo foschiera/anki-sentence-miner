@@ -8,6 +8,14 @@
     "scripting",
     "tabs"
   ],
+  "commands": {
+    "start-area-selection": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Selecionar uma área da página para OCR"
+    }
+  },
   "host_permissions": [
     "http://localhost:8765/*",
     "https://jisho.org/*",
@@ -20,7 +28,7 @@
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self';"
   },
   "content_scripts": [
     {
@@ -31,7 +39,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "web-anki-miner@local",
-      "strict_min_version": "109.0"
+      "strict_min_version": "126.0"
     }
   }
 }

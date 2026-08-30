@@ -6,10 +6,13 @@ document.addEventListener('keydown', (e) => {
     handleTextMining();
   }
 
-  // Alt + C: Snipping Tool / OCR de área
-  if (e.altKey && e.key.toLowerCase() === 'c') {
-    e.preventDefault();
-    e.stopPropagation();
+});
+
+// Alt+C é declarado em `commands` no manifest. Além de funcionar mesmo quando
+// o foco está em um campo da página, isso concede ao background o `activeTab`
+// necessário para capturar a aba no Firefox.
+browser.runtime.onMessage.addListener(request => {
+  if (request.action === "start_screen_snip") {
     startScreenSnip();
   }
 });
@@ -115,9 +118,13 @@ function startScreenSnip() {
 
   const overlay = document.createElement('div');
   overlay.id = 'anki-ocr-overlay';
+  overlay.setAttribute('role', 'application');
+  overlay.setAttribute('aria-label', 'Selecione uma área para reconhecer o texto. Pressione Escape para cancelar.');
+  overlay.tabIndex = -1;
   overlay.style.cssText = `
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0, 0, 0, 0.4); z-index: 999999; cursor: crosshair;
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.4); z-index: 2147483647; cursor: crosshair;
+    user-select: none; touch-action: none;
   `;
 
   const selectionBox = document.createElement('div');
@@ -126,14 +133,55 @@ function startScreenSnip() {
     background: rgba(88, 166, 255, 0.2); pointer-events: none; display: none;
   `;
   overlay.appendChild(selectionBox);
-  document.body.appendChild(overlay);
+  document.documentElement.appendChild(overlay);
+  overlay.focus({ preventScroll: true });
 
-  let startX, startY, isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let activePointerId = null;
 
-  overlay.addEventListener('mousedown', (e) => {
-    startX = e.clientX;
-    startY = e.clientY;
-    isDragging = true;
+  const clampToViewport = (x, y) => ({
+    x: Math.max(0, Math.min(window.innerWidth, x)),
+    y: Math.max(0, Math.min(window.innerHeight, y))
+  });
+
+  const cancelSelection = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', handleCancel, true);
+  };
+
+  const handleCancel = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelSelection();
+    }
+  };
+
+  document.addEventListener('keydown', handleCancel, true);
+
+  const updateSelectionBox = (clientX, clientY) => {
+    const current = clampToViewport(clientX, clientY);
+    const left = Math.min(startX, current.x);
+    const top = Math.min(startY, current.y);
+    const width = Math.abs(current.x - startX);
+    const height = Math.abs(current.y - startY);
+
+    selectionBox.style.left = `${left}px`;
+    selectionBox.style.top = `${top}px`;
+    selectionBox.style.width = `${width}px`;
+    selectionBox.style.height = `${height}px`;
+  };
+
+  overlay.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || activePointerId !== null) return;
+
+    e.preventDefault();
+    const start = clampToViewport(e.clientX, e.clientY);
+    startX = start.x;
+    startY = start.y;
+    activePointerId = e.pointerId;
+    overlay.setPointerCapture(e.pointerId);
     selectionBox.style.left = `${startX}px`;
     selectionBox.style.top = `${startY}px`;
     selectionBox.style.width = '0px';
@@ -141,33 +189,26 @@ function startScreenSnip() {
     selectionBox.style.display = 'block';
   });
 
-  overlay.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const currentX = e.clientX;
-    const currentY = e.clientY;
-
-    const left = Math.min(startX, currentX);
-    const top = Math.min(startY, currentY);
-    const width = Math.abs(currentX - startX);
-    const height = Math.abs(currentY - startY);
-
-    selectionBox.style.left = `${left}px`;
-    selectionBox.style.top = `${top}px`;
-    selectionBox.style.width = `${width}px`;
-    selectionBox.style.height = `${height}px`;
+  overlay.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== activePointerId) return;
+    updateSelectionBox(e.clientX, e.clientY);
   });
 
-  overlay.addEventListener('mouseup', async (e) => {
-    isDragging = false;
+  overlay.addEventListener('pointerup', async (e) => {
+    if (e.pointerId !== activePointerId) return;
+
+    updateSelectionBox(e.clientX, e.clientY);
+    activePointerId = null;
     const rect = {
-      x: parseInt(selectionBox.style.left),
-      y: parseInt(selectionBox.style.top),
-      width: parseInt(selectionBox.style.width),
-      height: parseInt(selectionBox.style.height),
-      dpr: window.devicePixelRatio || 1
+      x: Number.parseFloat(selectionBox.style.left),
+      y: Number.parseFloat(selectionBox.style.top),
+      width: Number.parseFloat(selectionBox.style.width),
+      height: Number.parseFloat(selectionBox.style.height),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
     };
 
-    overlay.remove();
+    cancelSelection();
 
     if (rect.width > 8 && rect.height > 8) {
       // Espera o compositor redesenhar a página sem o overlay escuro.
@@ -187,4 +228,6 @@ function startScreenSnip() {
         });
     }
   });
+
+  overlay.addEventListener('pointercancel', cancelSelection);
 }

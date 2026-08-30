@@ -3,6 +3,21 @@ import './tesseract.min.js';
 // Mantém um único worker para evitar recarregar o modelo japonês a cada recorte.
 let tesseractWorker = null;
 
+// A command invocation counts as an explicit extension action and grants the
+// temporary `activeTab` permission needed by captureVisibleTab.
+browser.commands.onCommand.addListener(async command => {
+  if (command !== "start-area-selection") return;
+
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  if (!tab || typeof tab.id !== "number") return;
+
+  try {
+    await browser.tabs.sendMessage(tab.id, { action: "start_screen_snip" });
+  } catch (error) {
+    console.error("[Area Selection Error] A seleção não está disponível nesta página.", error);
+  }
+});
+
 async function getOcrWorker() {
   const T = globalThis.Tesseract;
 
@@ -14,6 +29,9 @@ async function getOcrWorker() {
     console.log("[OCR] Inicializando worker do Tesseract...");
     tesseractWorker = await T.createWorker('jpn', 1, {
       workerPath: browser.runtime.getURL('vendor/tesseract/worker.min.js'),
+      // Firefox MV3 does not allow blob: in worker-src. Load the packaged
+      // same-origin worker directly instead of Tesseract's default blob wrapper.
+      workerBlobURL: false,
       corePath: browser.runtime.getURL('vendor/tesseract/tesseract-core-simd.wasm.js'),
       langPath: browser.runtime.getURL('tessdata'),
       logger: m => console.log("[Tesseract]", m)
@@ -39,7 +57,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "crop_and_ocr") {
-    return handleBrowserOcr(request.rect)
+    return handleBrowserOcr(request.rect, sender.tab?.windowId)
       .then(extractedText => {
         const word = extractDictionaryKeyword(extractedText);
         return processAndSendNote({ word, sentence: extractedText })
@@ -156,19 +174,49 @@ async function fetchDictionaryEntry(keyword) {
 }
 
 // Processamento do OCR na aba ativa
-async function handleBrowserOcr(rect) {
-  const dataUrl = await browser.tabs.captureVisibleTab(null, { format: "png" });
+async function handleBrowserOcr(rect, windowId) {
+  const dataUrl = await browser.tabs.captureVisibleTab(windowId, { format: "png" });
   const res = await fetch(dataUrl);
   const blob = await res.blob();
   const img = await createImageBitmap(blob);
 
-  const sourceWidth = Math.max(1, Math.round(rect.width * rect.dpr));
-  const sourceHeight = Math.max(1, Math.round(rect.height * rect.dpr));
+  const dimensions = rect && [
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    rect.viewportWidth,
+    rect.viewportHeight
+  ];
+  if (!dimensions || !dimensions.every(Number.isFinite) ||
+      rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
+      rect.viewportWidth <= 0 || rect.viewportHeight <= 0) {
+    img.close();
+    throw new Error("As dimensões da área selecionada são inválidas.");
+  }
+
+  // A captura pode usar uma escala diferente de devicePixelRatio por causa do
+  // zoom da página, escala do sistema ou implementação do navegador.
+  const scaleX = img.width / rect.viewportWidth;
+  const scaleY = img.height / rect.viewportHeight;
+  const sourceX = Math.max(0, Math.floor(rect.x * scaleX));
+  const sourceY = Math.max(0, Math.floor(rect.y * scaleY));
+  const sourceRight = Math.min(img.width, Math.ceil((rect.x + rect.width) * scaleX));
+  const sourceBottom = Math.min(img.height, Math.ceil((rect.y + rect.height) * scaleY));
+  const sourceWidth = sourceRight - sourceX;
+  const sourceHeight = sourceBottom - sourceY;
+
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    img.close();
+    throw new Error("A área selecionada está fora da parte visível da página.");
+  }
+
   const ocrScale = 2;
   const canvas = new OffscreenCanvas(sourceWidth * ocrScale, sourceHeight * ocrScale);
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
+    img.close();
     throw new Error("Não foi possível preparar a imagem para o OCR.");
   }
 
@@ -177,8 +225,8 @@ async function handleBrowserOcr(rect) {
 
   ctx.drawImage(
     img,
-    Math.round(rect.x * rect.dpr),
-    Math.round(rect.y * rect.dpr),
+    sourceX,
+    sourceY,
     sourceWidth,
     sourceHeight,
     0,
@@ -186,6 +234,7 @@ async function handleBrowserOcr(rect) {
     canvas.width,
     canvas.height
   );
+  img.close();
 
   const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
   const worker = await getOcrWorker();
