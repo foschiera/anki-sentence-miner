@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selecionar texto do PDF — Web Anki Miner</title>
+  <link rel="stylesheet" href="ocr-capture.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Web Anki Miner</p>
+      <h1 id="window-title">Selecionar texto do PDF</h1>
+    </div>
+    <button id="close-window" class="secondary-button" type="button">Cancelar</button>
+  </header>
+
+  <main>
+    <section id="capture-section">
+      <p class="instructions">Arraste sobre o texto que deseja reconhecer. Pressione Esc para cancelar.</p>
+      <div id="capture-stage" class="capture-stage" aria-label="Captura da área visível do PDF">
+        <canvas id="capture-canvas"></canvas>
+        <div id="selection-box" class="selection-box" hidden></div>
+      </div>
+      <p id="capture-status" class="status" role="status" aria-live="polite">Carregando captura…</p>
+    </section>
+
+    <section id="review-section" class="review-card" hidden>
+      <h2>Revisar resultado do OCR</h2>
+      <div id="ocr-metadata" class="metadata"></div>
+
+      <label for="term-input">Termo</label>
+      <input id="term-input" type="text">
+
+      <label for="text-input">Texto reconhecido / contexto</label>
+      <textarea id="text-input" rows="5"></textarea>
+
+      <label for="deck-select">Enviar para o deck</label>
+      <select id="deck-select" disabled>
+        <option value="">Carregando decks…</option>
+      </select>
+
+      <p id="review-status" class="status status--error" role="alert" aria-live="polite"></p>
+      <div class="actions">
+        <button id="back-to-selection" class="secondary-button" type="button">Selecionar novamente</button>
+        <button id="send-to-anki" class="primary-button" type="button" disabled>Enviar ao deck</button>
+      </div>
+    </section>
+
+    <section id="success-section" class="review-card success-card" hidden>
+      <h2>Adicionado ao Anki</h2>
+      <p id="success-message"></p>
+      <button id="finish" class="primary-button" type="button">Concluir</button>
+    </section>
+  </main>
+
+  <script src="ocr-capture.js"></script>
+</body>
+</html>

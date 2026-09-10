@@ -1,0 +1,13 @@
+# Local extension packages are release outputs, not source files.
+web-ext-artifacts/
+*.xpi
+
+# Dependency and test output.
+node_modules/
+coverage/
+
+# Editor and operating-system files.
+.DS_Store
+.idea/
+.vscode/
+
