@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Web Anki Miner",
-  "version": "1.2.1",
+  "version": "1.5.0",
   "description": "Minerador de texto, legendas em streaming e OCR leve para o Anki",
   "permissions": [
     "activeTab",
-    "scripting",
-    "storage",
-    "tabs"
+    "menus",
+    "storage"
   ],
   "action": {
     "default_title": "Web Anki Miner",
@@ -45,7 +44,12 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "web-anki-miner@local",
-      "strict_min_version": "126.0"
+      "strict_min_version": "126.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ]
+      }
     }
   }
 }

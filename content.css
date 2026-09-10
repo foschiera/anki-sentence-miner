@@ -35,6 +35,60 @@
 .anki-miner-toast__close { position: absolute; top: 7px; right: 8px; width: 27px; height: 27px; padding: 0; border: 0; color: #94a3b8; background: transparent; font: 20px/1 sans-serif; cursor: pointer; }
 .anki-miner-toast__action { margin-top: 9px; padding: 6px 9px; border: 1px solid #64748b; border-radius: 7px; color: #f8fafc; background: #334155; font: 700 12px/1.2 system-ui, sans-serif; cursor: pointer; }
 
+.anki-miner-review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, .68);
+  font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.anki-miner-review {
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  padding: 20px;
+  border: 1px solid #475569;
+  border-radius: 14px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .48);
+  color: #f8fafc;
+  background: #0f172a;
+}
+
+.anki-miner-review h2 { margin: 0; color: #f8fafc; font: 800 19px/1.25 system-ui, sans-serif; }
+.anki-miner-review__description { margin: 7px 0 16px; color: #cbd5e1; }
+.anki-miner-review__metadata { display: flex; flex-wrap: wrap; gap: 7px; margin: -6px 0 14px; }
+.anki-miner-review__metadata span { padding: 3px 7px; border: 1px solid #475569; border-radius: 999px; color: #bfdbfe; background: #172554; font-size: 11px; font-weight: 700; }
+.anki-miner-review__metadata .anki-miner-review__confidence--low { color: #fde68a; border-color: #92400e; background: #451a03; }
+.anki-miner-review label { display: block; margin: 12px 0 5px; color: #e2e8f0; font-weight: 700; }
+.anki-miner-review input,
+.anki-miner-review select,
+.anki-miner-review textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  color: #f8fafc;
+  background: #020617;
+  font: inherit;
+}
+.anki-miner-review textarea { min-height: 92px; resize: vertical; }
+.anki-miner-review input:focus,
+.anki-miner-review select:focus,
+.anki-miner-review textarea:focus,
+.anki-miner-review button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.anki-miner-review select:disabled { color: #94a3b8; cursor: wait; }
+.anki-miner-review__error { min-height: 20px; margin: 7px 0 0; color: #fca5a5; font-size: 12px; }
+.anki-miner-review__actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 10px; }
+.anki-miner-review__button { padding: 9px 13px; border-radius: 8px; color: #f8fafc; font: 800 13px/1.2 system-ui, sans-serif; cursor: pointer; }
+.anki-miner-review__button--secondary { border: 1px solid #64748b; background: #334155; }
+.anki-miner-review__button--primary { border: 1px solid #2563eb; background: #2563eb; }
+.anki-miner-review__button--primary:hover { background: #1d4ed8; }
+.anki-miner-review__button:disabled { cursor: wait; opacity: .55; }
+
 @keyframes anki-miner-toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes anki-miner-toast-out { to { opacity: 0; transform: translateX(14px); } }
 

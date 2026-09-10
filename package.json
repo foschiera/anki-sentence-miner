@@ -1,0 +1,28 @@
+{
+  "name": "web-anki-miner",
+  "version": "1.5.0",
+  "private": true,
+  "description": "A Firefox extension that turns Japanese text, subtitles, and screenshots into Anki notes.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "validate": "node scripts/validate-project.cjs",
+    "check": "npm run validate && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/foschiera/anki-sentence-miner.git"
+  },
+  "keywords": [
+    "anki",
+    "browser-extension",
+    "firefox",
+    "japanese",
+    "language-learning",
+    "ocr"
+  ],
+  "license": "UNLICENSED"
+}
+
